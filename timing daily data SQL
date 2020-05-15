@@ -1,0 +1,330 @@
+--每日唤醒量
+select 
+	day, 
+	case when app_id='2x1kfBk63z' then 'android' else 'ios' end as source,
+	count(distinct uv_u) as users
+from 
+		portal.edm_qingtui_wake_user_detail_day 
+where 
+	day=${1.days.ago} 
+	and app_id in ('2x1kfBk63z','2S5Wcx')
+	and source like '%news_zhizi%'
+group by 
+	day,
+	case when app_id='2x1kfBk63z' then 'android' else 'ios' end
+
+--adx分类
+select 
+	day,
+	'android' as source,
+	kv['spsAdx'] as adx,
+	count(distinct device_uuid) as users
+from 
+		portal.edm_qingtui_wake_user_detail_day 
+where 
+	day>=${2.days.ago} and day<=${1.days.ago}
+	and app_id='2x1kfBk63z'
+	and qingtui_source like '%news_zhizi_android%'
+group by  
+	day,
+	kv['spsAdx']
+	
+--唤醒用户分布
+select 
+	day,
+	app_id,
+	source,
+	days,
+	count(distinct device_uuid) as wakeupusers,
+	count(distinct case when diff=1 then device_uuid else null end) as ret1users,
+	count(distinct case when diff=1 and bg='ug' then device_uuid else null end) as ret1ugusers,
+	count(distinct case when diff=1 and bg in ('app','back','push') then device_uuid else null end) as ret1initiateusers,
+	count(distinct case when diff=7 then device_uuid else null end) as ret7users,
+	count(distinct case when diff=7 and bg='ug' then device_uuid else null end) as ret7ugusers,
+	count(distinct case when diff=7 and bg in ('app','back','push') then device_uuid else null end) as ret7initiateusers
+from 
+(
+	select 
+		tmp1.day,
+		tmp1.app_id,
+		tmp1.source,
+		bg,
+		tmp1.device_uuid,
+		days,
+		datediff(day4,day3) as diff
+	from 
+	(
+		select
+			a.day,
+			a.device_uuid,
+			a.source,
+			a.app_id,
+			count(distinct case when datediff(day1,day2)>=1 and datediff(day1,day2)<=7 then datediff(day1,day2) else null end) as days,
+			concat(substr(a.day,1,4),'-',substr(a.day,5,2),'-',substr(a.day,7,2)) as day3
+		from 
+		(
+			select 
+				day,
+				'android' as source,
+				device_uuid,
+				app_id,
+				concat(substr(day,1,4),'-',substr(day,5,2),'-',substr(day,7,2)) as day1
+			from 
+					portal.edm_qingtui_wake_user_detail_day 
+			where 
+				day>=${8.days.ago} and day<=${1.days.ago}
+				and app_id='2x1kfBk63z'
+				and qingtui_source like '%news_zhizi_android%'
+			group by  
+				day,
+				device_uuid,
+				app_id
+			
+			union all
+			
+			select 
+				day,
+				'ios' as source,
+				device_uuid,
+				app_id,
+				concat(substr(day,1,4),'-',substr(day,5,2),'-',substr(day,7,2)) as day1
+			from 
+					portal.edm_galaxy_circular_day 
+			where 
+				day>=${8.days.ago} and day<=${1.days.ago}
+				and event_id in ('OPEN','OPEN_CH') 
+				and app_id in ('2S5Wcx')
+				and kv['source'] like '%news_zhizi%'
+			group by 
+				day,
+				device_uuid,
+				app_id
+		) a left outer join
+		(
+			select 
+				device_uuid,
+				app_id,
+				day,
+				concat(substr(day,1,4),'-',substr(day,5,2),'-',substr(day,7,2)) as day2
+			from 
+					portal.edm_user_device_activity_day
+			where 
+				day>=${16.days.ago} and day<=${2.days.ago}
+				and app_id in ('2x1kfBk63z','2S5Wcx')
+			group by 
+				device_uuid,
+				app_id,
+				day
+		) b on a.device_uuid=b.device_uuid and a.app_id=b.app_id
+		group by 
+			a.day,
+			a.source,
+			a.app_id,
+			a.device_uuid
+	) tmp1 left outer join
+	(
+		select 
+			day,
+			bg,
+			device_uuid,
+			app_id,
+			concat(substr(day,1,4),'-',substr(day,5,2),'-',substr(day,7,2)) as day4
+		from 
+				portal.edm_user_device_session_hour
+		where 
+			app_id in ('2x1kfBk63z','2S5Wcx')	
+			and day>=${8.days.ago} and day<=${1.days.ago}
+			--and is_first=1
+		group by 
+			day,
+			bg,
+			app_id,
+			device_uuid
+	) tmp2 on tmp1.device_uuid=tmp2.device_uuid and tmp1.app_id=tmp2.app_id
+	group by 
+		tmp1.day,
+		tmp1.app_id,
+		tmp1.source,
+		bg,
+		days,
+		tmp1.device_uuid,
+		datediff(day4,day3)
+) total
+group by 
+	day,
+	app_id,
+	source,
+	days
+	
+--最后渠道
+select
+	a.day,
+	a.app_id,
+	a.source,
+	a.plan_id,
+	b.channel_name,
+	count(distinct a.device_uuid) as users
+from 
+(
+	select 
+		day,
+		'android' as source,
+		device_uuid,
+		app_id,
+		kv['spsAdPlanId'] as plan_id,
+		concat(substr(day,1,4),'-',substr(day,5,2),'-',substr(day,7,2)) as day1
+	from 
+			portal.edm_qingtui_wake_user_detail_day 
+	where 
+		day>=${1.days.ago} and day<=${1.days.ago}
+		and app_id='2x1kfBk63z'
+		and qingtui_source like '%news_zhizi_android%'
+	group by  
+		day,
+		device_uuid,
+		app_id,
+		kv['spsAdPlanId']
+	
+	union all
+	
+	select 
+		day,
+		'ios' as source,
+		device_uuid,
+		app_id,
+		kv['spsAdPlanId'] as plan_id,
+		concat(substr(day,1,4),'-',substr(day,5,2),'-',substr(day,7,2)) as day1
+	from 
+			portal.edm_galaxy_circular_day 
+	where 
+		day>=${1.days.ago} and day<=${1.days.ago}
+		and event_id in ('OPEN','OPEN_CH') 
+		and app_id in ('2S5Wcx')
+		and kv['source'] like '%news_zhizi%'
+	group by 
+		day,
+		device_uuid,
+		app_id,
+		kv['spsAdPlanId']
+) a left outer join
+(
+	select 
+		device_uuid, 
+		current_channel as channel_name, 
+		day,
+		app_id
+	from 
+		portal.adm_userop_device_day 
+	where 
+		day=${1.days.ago} 
+		and app_id in ('2x1kfBk63z','2S5Wcx')
+	group by 
+		device_uuid, 
+		current_channel, 
+		day,
+		app_id
+) b on a.device_uuid=b.device_uuid and a.app_id=b.app_id and a.day=b.day 
+group by 
+	a.day,
+	a.app_id,
+	a.source,
+	a.plan_id,
+	b.channel_name
+	
+--唤醒用户作弊率
+select
+	a.day,
+	source,
+	adx,
+	count(distinct case when source='news_zhizi_android_01' then case when types='all-android' then a.device_uuid else null end else a.device_uuid end) as users,
+	count(distinct case when source='news_zhizi_android_01' then case when b.device_uuid is null and types='all-android' then a.device_uuid else null end else null end) as true_users,
+	count(distinct case when source='news_zhizi_android_01' then case when types='first-android' then a.device_uuid else null end else a.device_uuid end) as first_start_users
+from 
+(
+	select 
+		day,
+		device_uuid,
+		'all-android' as types,
+		app_id,
+		kv['spsAdx'] as adx,
+		'news_zhizi_android_01' as source
+	from 
+			portal.edm_qingtui_wake_user_detail_day 
+	where 
+		day=${1.days.ago}
+		and app_id='2x1kfBk63z'
+		and qingtui_source like '%news_zhizi_android%'
+	group by  
+		day,
+		device_uuid,
+		kv['spsAdx'],
+		app_id
+		
+	union all	
+		
+	select 
+		day,
+		device_uuid,
+		'first-android' as types,
+		app_id,
+		kv['spsAdx'] as adx,
+		'news_zhizi_android_01' as source
+	from 
+			portal.edm_user_device_session_hour 
+	where 
+		day=${1.days.ago}
+		and app_id='2x1kfBk63z'
+		and kv['source'] like '%news_zhizi_android%'
+		and bg='ug'
+		and is_first=1
+	group by  
+		day,
+		device_uuid,
+		kv['spsAdx'],
+		app_id
+		
+	union all
+	
+	select 
+		day,
+		device_uuid,
+		'ios' as types,
+		app_id,
+		kv['spsAdx'] as adx,
+		'news_zhizi_ios_01' as source
+	from 
+			portal.edm_galaxy_circular_day 
+	where 
+		day>=${1.days.ago} and day<=${1.days.ago}
+		and event_id in ('OPEN','OPEN_CH') 
+		and app_id in ('2S5Wcx')
+		and kv['source'] like '%news_zhizi%'
+	group by 
+		day,
+		device_uuid,
+		kv['spsAdx'],
+		app_id
+) a left outer join
+(
+	select 
+		day, 
+		device_uuid,
+		app_id,
+		source_first
+	from 
+			datamining.cheat_lowquality_wake_user
+	where 
+		day>=${1.days.ago} and day<=${1.days.ago}
+		and app_id='2x1kfBk63z'
+		and class='cheat' 
+		and source_first in ('news_zhizi_android_01','news_zhizi_ios_01')
+	group by 
+		day, 
+		device_uuid,
+		app_id,
+		source_first
+) b on a.device_uuid=b.device_uuid and a.app_id=b.app_id and a.source=b.source_first
+group by 
+	a.day,
+	source,
+	adx
